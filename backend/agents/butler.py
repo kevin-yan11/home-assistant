@@ -11,6 +11,7 @@ from agentscope.message import Msg
 
 from config import OPENAI_API_KEY, OPENAI_BASE_URL, MODEL_NAME
 from agents.device_agent import DeviceControlAgent
+from core.state_manager import state_manager
 
 
 class ButlerAgent:
@@ -87,18 +88,23 @@ class ButlerAgent:
         )
 
     def _build_prompt(self) -> str:
-        return """You are Butler, a smart home assistant supervisor.
+        ctx = state_manager.get_context()
+        return f"""You are Butler, a smart home assistant supervisor.
+
+{ctx}
 
 Your role is to:
 1. Understand user requests about their smart home
 2. Delegate tasks to specialized sub-agents using the available tools
 3. Provide friendly, helpful responses
+4. Answer questions about current device status directly from the context above
 
 Available sub-agents:
 - Device Control Agent: Handles all device operations (lights, AC, speakers)
   Use `_dispatch_device_control` to send tasks to this agent
 
 Guidelines:
+- For questions about current device status (e.g., "is the light on?", "what's the AC temperature?"), answer directly from the context
 - For device control requests (turn on/off lights, adjust AC, play music), use the device control dispatch tool
 - Parse user intent and provide clear task descriptions to sub-agents
 - If user asks about multiple devices, you can dispatch multiple tasks
@@ -107,11 +113,14 @@ Guidelines:
 
 Examples:
 - "Turn on the bedroom light" → dispatch to device agent with task="turn on bedroom light", device_type="light", room="bedroom", action="turn_on"
-- "Set AC to 22 degrees" → dispatch to device agent with task="set AC temperature to 22", device_type="ac", action="set_temp", parameters='{"temperature": 22}'
-- "Play some jazz music" → dispatch to device agent with task="play jazz music", device_type="speaker", action="play", parameters='{"song": "jazz"}'
+- "Set AC to 22 degrees" → dispatch to device agent with task="set AC temperature to 22", device_type="ac", action="set_temp", parameters='{{"temperature": 22}}'
+- "Play some jazz music" → dispatch to device agent with task="play jazz music", device_type="speaker", action="play", parameters='{{"song": "jazz"}}'
+- "What's the living room AC temperature?" → answer directly: "The living room AC is set to 24°C"
 """
 
     async def chat(self, user_input: str) -> str:
+        # Update prompt with latest device state
+        self.agent._sys_prompt = self._build_prompt()
         msg = Msg(name="user", content=user_input, role="user")
         response = await self.agent(msg)
 
