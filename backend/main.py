@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
 from agents import ButlerAgent
-from core import state_manager
+from core import state_manager, schedule_manager
 
 
 butler: ButlerAgent | None = None
@@ -55,6 +55,32 @@ async def chat(req: ChatRequest):
 @app.get("/devices")
 async def get_devices():
     return state_manager.get_all()
+
+
+@app.get("/schedules")
+async def get_schedules():
+    """Get all scheduled tasks."""
+    tasks = schedule_manager.get_all_tasks()
+    return [
+        {
+            "id": t.id,
+            "type": t.task_type.value,
+            "trigger_time": t.trigger_time.isoformat(),
+            "repeat": t.repeat.value,
+            "description": t.description,
+            "message": t.message,
+            "status": t.status.value,
+        }
+        for t in sorted(tasks, key=lambda x: x.trigger_time)
+    ]
+
+
+@app.delete("/schedules/{task_id}")
+async def delete_schedule(task_id: str):
+    """Delete a scheduled task."""
+    if schedule_manager.delete_task(task_id):
+        return {"status": "ok", "message": f"Task {task_id} deleted"}
+    raise HTTPException(404, f"Task {task_id} not found")
 
 
 @app.post("/reset")
