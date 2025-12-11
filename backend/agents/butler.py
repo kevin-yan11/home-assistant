@@ -11,7 +11,9 @@ from agentscope.message import Msg
 
 from config import OPENAI_API_KEY, OPENAI_BASE_URL, MODEL_NAME
 from agents.device_agent import DeviceControlAgent
+from agents.scheduler_agent import SchedulerAgent
 from core.state_manager import state_manager
+from core.schedule_manager import schedule_manager
 
 
 class ButlerAgent:
@@ -24,6 +26,7 @@ class ButlerAgent:
 
     def __init__(self):
         self.device_agent = DeviceControlAgent()
+        self.scheduler_agent = SchedulerAgent()
         self.toolkit = Toolkit()
         self._register_tools()
         self.agent = self._create_agent()
@@ -31,6 +34,7 @@ class ButlerAgent:
     def _register_tools(self):
         """Register sub-agent dispatch tools."""
         self.toolkit.register_tool_function(self._dispatch_device_control)
+        self.toolkit.register_tool_function(self._dispatch_scheduler)
 
     def _dispatch_device_control(
         self,
@@ -70,6 +74,27 @@ class ButlerAgent:
         )
         return ToolResponse(content=result)
 
+    def _dispatch_scheduler(
+        self,
+        task: str,
+        action_type: str = None
+    ) -> ToolResponse:
+        """
+        Dispatch a scheduling task to the Scheduler Agent.
+
+        Args:
+            task: Natural language description (e.g., "remind me to call mom in 30 minutes")
+            action_type: Type hint - "reminder", "device_schedule", "list", or "cancel"
+
+        Returns:
+            Result of the scheduling operation
+        """
+        result = self.scheduler_agent.execute(
+            task=task,
+            action_type=action_type,
+        )
+        return ToolResponse(content=result)
+
     def _create_agent(self) -> ReActAgent:
         model = OpenAIChatModel(
             model_name=MODEL_NAME,
@@ -88,34 +113,42 @@ class ButlerAgent:
         )
 
     def _build_prompt(self) -> str:
-        ctx = state_manager.get_context()
+        device_ctx = state_manager.get_context()
+        schedule_ctx = schedule_manager.get_context()
         return f"""You are Butler, a smart home assistant supervisor.
 
-{ctx}
+{device_ctx}
+
+{schedule_ctx}
 
 Your role is to:
 1. Understand user requests about their smart home
 2. Delegate tasks to specialized sub-agents using the available tools
 3. Provide friendly, helpful responses
-4. Answer questions about current device status directly from the context above
+4. Answer questions about current device status or schedules directly from the context above
 
 Available sub-agents:
 - Device Control Agent: Handles all device operations (lights, AC, speakers)
   Use `_dispatch_device_control` to send tasks to this agent
+- Scheduler Agent: Handles reminders, scheduled tasks, and timed device control
+  Use `_dispatch_scheduler` to send tasks to this agent
 
 Guidelines:
-- For questions about current device status (e.g., "is the light on?", "what's the AC temperature?"), answer directly from the context
+- For questions about current device status, answer directly from the context
+- For questions about schedules/reminders, answer directly from the context
 - For device control requests (turn on/off lights, adjust AC, play music), use the device control dispatch tool
+- For scheduling requests (reminders, timed actions, "every day at X"), use the scheduler dispatch tool
 - Parse user intent and provide clear task descriptions to sub-agents
-- If user asks about multiple devices, you can dispatch multiple tasks
 - Respond naturally in the same language as the user
 - Be concise but friendly
 
 Examples:
-- "Turn on the bedroom light" → dispatch to device agent with task="turn on bedroom light", device_type="light", room="bedroom", action="turn_on"
-- "Set AC to 22 degrees" → dispatch to device agent with task="set AC temperature to 22", device_type="ac", action="set_temp", parameters='{{"temperature": 22}}'
-- "Play some jazz music" → dispatch to device agent with task="play jazz music", device_type="speaker", action="play", parameters='{{"song": "jazz"}}'
-- "What's the living room AC temperature?" → answer directly: "The living room AC is set to 24°C"
+- "Turn on the bedroom light" → dispatch to device agent
+- "Set AC to 22 degrees" → dispatch to device agent
+- "Remind me to call mom in 30 minutes" → dispatch to scheduler with action_type="reminder"
+- "Turn on lights every day at 7am" → dispatch to scheduler with action_type="device_schedule"
+- "What's scheduled?" → answer directly from schedule context, or dispatch to scheduler with action_type="list"
+- "Cancel reminder xxx" → dispatch to scheduler with action_type="cancel"
 """
 
     async def chat(self, user_input: str) -> str:
@@ -137,3 +170,4 @@ Examples:
     def clear_memory(self):
         self.agent.memory = InMemoryMemory()
         self.device_agent.clear_memory()
+        self.scheduler_agent.clear_memory()
