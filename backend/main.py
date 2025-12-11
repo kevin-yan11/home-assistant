@@ -3,19 +3,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-from agents import HomeAssistant
+from agents import ButlerAgent
 from core import state_manager
 
 
-assistant: HomeAssistant | None = None
+butler: ButlerAgent | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global assistant
-    assistant = HomeAssistant()
+    global butler
+    butler = ButlerAgent()
     yield
-    assistant = None
+    butler = None
 
 
 app = FastAPI(title="Home Assistant API", lifespan=lifespan)
@@ -43,7 +43,7 @@ async def chat(req: ChatRequest):
     if not req.message.strip():
         raise HTTPException(400, "Empty message")
     try:
-        response = await assistant.chat(req.message)
+        response = await butler.chat(req.message)
         return ChatResponse(
             response=response,
             devices=state_manager.get_all()
@@ -59,8 +59,8 @@ async def get_devices():
 
 @app.post("/reset")
 async def reset():
-    global assistant
-    assistant = HomeAssistant()
+    global butler
+    butler = ButlerAgent()
     state_manager._init_mock_devices()
     return {"status": "ok"}
 
