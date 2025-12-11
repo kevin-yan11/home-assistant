@@ -12,6 +12,7 @@ from agentscope.message import Msg
 from config import OPENAI_API_KEY, OPENAI_BASE_URL, MODEL_NAME
 from agents.device_agent import DeviceControlAgent
 from agents.scheduler_agent import SchedulerAgent
+from agents.search_agent import SearchAgent
 from core.state_manager import state_manager
 from core.schedule_manager import schedule_manager
 
@@ -27,6 +28,7 @@ class ButlerAgent:
     def __init__(self):
         self.device_agent = DeviceControlAgent()
         self.scheduler_agent = SchedulerAgent()
+        self.search_agent = SearchAgent()
         self.toolkit = Toolkit()
         self._register_tools()
         self.agent = self._create_agent()
@@ -35,6 +37,7 @@ class ButlerAgent:
         """Register sub-agent dispatch tools."""
         self.toolkit.register_tool_function(self._dispatch_device_control)
         self.toolkit.register_tool_function(self._dispatch_scheduler)
+        self.toolkit.register_tool_function(self._dispatch_search)
 
     def _dispatch_device_control(
         self,
@@ -95,6 +98,22 @@ class ButlerAgent:
         )
         return ToolResponse(content=result)
 
+    def _dispatch_search(
+        self,
+        query: str
+    ) -> ToolResponse:
+        """
+        Dispatch a search query to the Search Agent.
+
+        Args:
+            query: The search query or question (e.g., "weather in Beijing", "latest tech news")
+
+        Returns:
+            Search results summary
+        """
+        result = self.search_agent.execute(query=query)
+        return ToolResponse(content=result)
+
     def _create_agent(self) -> ReActAgent:
         model = OpenAIChatModel(
             model_name=MODEL_NAME,
@@ -132,12 +151,15 @@ Available sub-agents:
   Use `_dispatch_device_control` to send tasks to this agent
 - Scheduler Agent: Handles reminders, scheduled tasks, and timed device control
   Use `_dispatch_scheduler` to send tasks to this agent
+- Search Agent: Handles web searches, weather queries, news, and general information
+  Use `_dispatch_search` to send queries to this agent
 
 Guidelines:
 - For questions about current device status, answer directly from the context
 - For questions about schedules/reminders, answer directly from the context
 - For device control requests (turn on/off lights, adjust AC, play music), use the device control dispatch tool
 - For scheduling requests (reminders, timed actions, "every day at X"), use the scheduler dispatch tool
+- For information queries (weather, news, general questions), use the search dispatch tool
 - Parse user intent and provide clear task descriptions to sub-agents
 - Respond naturally in the same language as the user
 - Be concise but friendly
@@ -149,6 +171,9 @@ Examples:
 - "Turn on lights every day at 7am" → dispatch to scheduler with action_type="device_schedule"
 - "What's scheduled?" → answer directly from schedule context, or dispatch to scheduler with action_type="list"
 - "Cancel reminder xxx" → dispatch to scheduler with action_type="cancel"
+- "What's the weather today?" → dispatch to search agent
+- "Any tech news?" → dispatch to search agent
+- "How to make coffee?" → dispatch to search agent
 """
 
     async def chat(self, user_input: str) -> str:
