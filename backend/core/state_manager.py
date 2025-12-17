@@ -43,13 +43,22 @@ class StateManager:
         self._ha_entity_map.clear()
         count = 0
 
+        def make_unique_id(base_id: str) -> str:
+            """Generate unique device_id to avoid conflicts."""
+            if base_id not in self._states:
+                return base_id
+            i = 2
+            while f"{base_id}_{i}" in self._states:
+                i += 1
+            return f"{base_id}_{i}"
+
         # Sync lights
         for entity in ha_client.get_entities_by_domain("light"):
             entity_id = entity["entity_id"]
             attrs = entity.get("attributes", {})
             friendly_name = attrs.get("friendly_name", entity_id)
             room = self._extract_room(entity_id, friendly_name)
-            local_id = f"light_{room}"
+            local_id = make_unique_id(f"light_{room}")
 
             brightness = 0
             if entity["state"] == "on":
@@ -60,7 +69,7 @@ class StateManager:
                 device_type="light",
                 room=room,
                 status=entity["state"],
-                properties={"brightness": brightness},
+                properties={"brightness": brightness, "name": friendly_name},
                 ha_entity_id=entity_id,
             )
             self._ha_entity_map[local_id] = entity_id
@@ -72,7 +81,7 @@ class StateManager:
             attrs = entity.get("attributes", {})
             friendly_name = attrs.get("friendly_name", entity_id)
             room = self._extract_room(entity_id, friendly_name)
-            local_id = f"ac_{room}"
+            local_id = make_unique_id(f"ac_{room}")
 
             status = "on" if entity["state"] not in ("off", "unavailable") else "off"
             self._states[local_id] = DeviceState(
@@ -83,6 +92,7 @@ class StateManager:
                 properties={
                     "temperature": attrs.get("temperature", 26),
                     "mode": entity["state"] if status == "on" else "off",
+                    "name": friendly_name,
                 },
                 ha_entity_id=entity_id,
             )
@@ -95,7 +105,7 @@ class StateManager:
             attrs = entity.get("attributes", {})
             friendly_name = attrs.get("friendly_name", entity_id)
             room = self._extract_room(entity_id, friendly_name)
-            local_id = f"speaker_{room}"
+            local_id = make_unique_id(f"speaker_{room}")
 
             status = "on" if entity["state"] == "playing" else "off"
             self._states[local_id] = DeviceState(
@@ -106,6 +116,7 @@ class StateManager:
                 properties={
                     "volume": int(attrs.get("volume_level", 0.5) * 100),
                     "playing": attrs.get("media_title"),
+                    "name": friendly_name,
                 },
                 ha_entity_id=entity_id,
             )
