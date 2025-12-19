@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-import agentscope
 
 from agents import ButlerAgent
 from core import state_manager, schedule_manager, ha_client
@@ -14,12 +13,6 @@ butler: ButlerAgent | None = None
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global butler
-    # Initialize AgentScope with Studio for tracing
-    agentscope.init(
-        studio_url="http://localhost:3001",
-        project="home-assistant",
-        name="butler-agent",
-    )
     # Sync devices from Home Assistant if enabled
     if ha_client.enabled:
         count = state_manager.sync_from_ha(ha_client)

@@ -1,7 +1,6 @@
 """
-Butler Agent - The main supervisor that understands user intent and delegates to sub-agents.
+Butler Agent - Hybrid routing: direct tool calls for simple tasks, sub-agents for complex ones.
 """
-import json
 from agentscope.agent import ReActAgent
 from agentscope.model import OpenAIChatModel
 from agentscope.formatter import OpenAIChatFormatter
@@ -10,23 +9,21 @@ from agentscope.tool import Toolkit, ToolResponse
 from agentscope.message import Msg
 
 from config import OPENAI_API_KEY, OPENAI_BASE_URL, MODEL_NAME
-from agents.device_agent import DeviceControlAgent
 from agents.scheduler_agent import SchedulerAgent
 from agents.search_agent import SearchAgent
 from core.state_manager import state_manager
 from core.schedule_manager import schedule_manager
+from tools.device_tools import control_light, control_ac, control_speaker, get_device_status
 
 
 class ButlerAgent:
     """
-    Butler is the main supervisor agent that:
-    1. Understands user intent
-    2. Routes tasks to appropriate sub-agents
-    3. Aggregates responses and replies to user
+    Butler is a hybrid router that:
+    1. Handles simple device control directly via tools (faster)
+    2. Routes complex tasks (scheduling, search) to specialized sub-agents
     """
 
     def __init__(self):
-        self.device_agent = DeviceControlAgent()
         self.scheduler_agent = SchedulerAgent()
         self.search_agent = SearchAgent()
         self.toolkit = Toolkit()
@@ -34,48 +31,15 @@ class ButlerAgent:
         self.agent = self._create_agent()
 
     def _register_tools(self):
-        """Register sub-agent dispatch tools."""
-        self.toolkit.register_tool_function(self._dispatch_device_control)
+        """Register direct tools and sub-agent dispatch tools."""
+        # Direct device control tools (simple, fast path)
+        self.toolkit.register_tool_function(control_light)
+        self.toolkit.register_tool_function(control_ac)
+        self.toolkit.register_tool_function(control_speaker)
+        self.toolkit.register_tool_function(get_device_status)
+        # Sub-agent dispatch tools (complex tasks)
         self.toolkit.register_tool_function(self._dispatch_scheduler)
         self.toolkit.register_tool_function(self._dispatch_search)
-
-    def _dispatch_device_control(
-        self,
-        task: str,
-        device_type: str = None,
-        room: str = None,
-        action: str = None,
-        parameters: str = None
-    ) -> ToolResponse:
-        """
-        Dispatch a device control task to the Device Control Agent.
-
-        Args:
-            task: Natural language description of what to do (e.g., "turn on bedroom light")
-            device_type: Type of device - light, ac, or speaker (optional, agent will infer)
-            room: Room name (optional, agent will infer from task)
-            action: Specific action like turn_on, turn_off, dim, set_temp (optional)
-            parameters: JSON string of additional parameters like brightness, temperature (optional)
-
-        Returns:
-            Result of the device control operation
-        """
-        # Parse parameters if provided
-        params = {}
-        if parameters:
-            try:
-                params = json.loads(parameters)
-            except json.JSONDecodeError:
-                pass
-
-        result = self.device_agent.execute(
-            task=task,
-            device_type=device_type,
-            room=room,
-            action=action,
-            **params
-        )
-        return ToolResponse(content=result)
 
     def _dispatch_scheduler(
         self,
@@ -134,7 +98,7 @@ class ButlerAgent:
     def _build_prompt(self) -> str:
         device_ctx = state_manager.get_context()
         schedule_ctx = schedule_manager.get_context()
-        return f"""You are Butler, a smart home assistant supervisor.
+        return f"""You are Butler, a smart home assistant.
 
 {device_ctx}
 
@@ -142,38 +106,50 @@ class ButlerAgent:
 
 Your role is to:
 1. Understand user requests about their smart home
-2. Delegate tasks to specialized sub-agents using the available tools
-3. Provide friendly, helpful responses
-4. Answer questions about current device status or schedules directly from the context above
+2. Execute simple device commands directly using tools
+3. Delegate complex tasks (scheduling, search) to specialized sub-agents
+4. Provide friendly, helpful responses
 
-Available sub-agents:
-- Device Control Agent: Handles all device operations (lights, AC, speakers)
-  Use `_dispatch_device_control` to send tasks to this agent
-- Scheduler Agent: Handles reminders, scheduled tasks, and timed device control
-  Use `_dispatch_scheduler` to send tasks to this agent
-- Search Agent: Handles web searches, weather queries, news, and general information
-  Use `_dispatch_search` to send queries to this agent
+Available tools:
+- Direct Device Control (fast, for simple commands):
+  - `control_light`: Turn on/off lights, adjust brightness
+  - `control_ac`: Turn on/off AC, set temperature
+  - `control_speaker`: Play/pause/stop music, adjust volume
+  - `get_device_status`: Check current device status
+
+- Sub-agent Dispatch (for complex tasks):
+  - `_dispatch_scheduler`: Reminders, scheduled tasks, timed device control
+  - `_dispatch_search`: Web searches, weather, news, general questions
 
 Guidelines:
-- For questions about current device status, answer directly from the context
-- For questions about schedules/reminders, answer directly from the context
-- For device control requests (turn on/off lights, adjust AC, play music), use the device control dispatch tool
-- For scheduling requests (reminders, timed actions, "every day at X"), use the scheduler dispatch tool
-- For information queries (weather, news, general questions), use the search dispatch tool
-- Parse user intent and provide clear task descriptions to sub-agents
+- For simple device commands (turn on/off, adjust settings), use direct tools
+- For questions about current device status, answer directly from the context above
+- For questions about schedules/reminders, answer directly from the context above
+- For scheduling requests (reminders, timed actions, "every day at X"), use `_dispatch_scheduler`
+- For information queries (weather, news, general questions), use `_dispatch_search`
 - Respond naturally in the same language as the user
 - Be concise but friendly
 
+Handling ambiguous/comfort requests:
+When users express comfort issues without specific commands, analyze the device context and infer the appropriate action:
+- "太暗了" / "It's too dark" → Check current light status, turn on lights or increase brightness
+- "太亮了" / "It's too bright" → Decrease brightness or turn off lights
+- "太冷了" / "It's too cold" → If AC is on cooling, raise temperature or turn off; if AC is off, turn on heating
+- "太热了" / "It's too hot" → If AC is off, turn on cooling; if AC is on, lower temperature
+- "太吵了" / "It's too loud" → Lower speaker volume or pause playback
+- "太安静了" / "It's too quiet" → Play music or increase volume
+Always consider the current device state before deciding. If unsure which room, ask the user or apply to all relevant rooms.
+
 Examples:
-- "Turn on the bedroom light" → dispatch to device agent
-- "Set AC to 22 degrees" → dispatch to device agent
-- "Remind me to call mom in 30 minutes" → dispatch to scheduler with action_type="reminder"
-- "Turn on lights every day at 7am" → dispatch to scheduler with action_type="device_schedule"
-- "What's scheduled?" → answer directly from schedule context, or dispatch to scheduler with action_type="list"
-- "Cancel reminder xxx" → dispatch to scheduler with action_type="cancel"
-- "What's the weather today?" → dispatch to search agent
-- "Any tech news?" → dispatch to search agent
-- "How to make coffee?" → dispatch to search agent
+- "Turn on the bedroom light" → use `control_light` directly
+- "Set AC to 22 degrees" → use `control_ac` directly
+- "太暗了" → check lights in context, if brightness is low, increase it or turn on
+- "有点冷" → check AC status, if cooling at 22°C, raise to 24-25°C
+- "What's the living room AC status?" → answer from context or use `get_device_status`
+- "Remind me to call mom in 30 minutes" → `_dispatch_scheduler` with action_type="reminder"
+- "Turn on lights every day at 7am" → `_dispatch_scheduler` with action_type="device_schedule"
+- "What's scheduled?" → answer from schedule context
+- "What's the weather today?" → `_dispatch_search`
 """
 
     async def chat(self, user_input: str) -> str:
@@ -194,5 +170,5 @@ Examples:
 
     def clear_memory(self):
         self.agent.memory = InMemoryMemory()
-        self.device_agent.clear_memory()
         self.scheduler_agent.clear_memory()
+        self.search_agent.clear_memory()
