@@ -129,7 +129,7 @@ class StateManager:
         """Extract room name from entity_id or friendly_name."""
         name = entity_id.split(".")[-1].lower()
 
-        # 常见房间名映射
+        # Common room name mappings
         room_mapping = {
             "bed": "bedroom", "bedroom": "bedroom",
             "living": "living_room", "living_room": "living_room", "lounge": "living_room",
@@ -138,15 +138,15 @@ class StateManager:
             "bathroom": "bathroom", "bath": "bathroom",
             "garage": "garage",
             "entrance": "entrance", "hallway": "hallway",
-            "ceiling": "living_room",  # ceiling lights 通常在客厅
+            "ceiling": "living_room",  # ceiling lights usually in living room
         }
 
-        # 检查 entity_id 中是否包含房间关键词
+        # Check if entity_id contains room keywords
         for keyword, room in room_mapping.items():
             if keyword in name:
                 return room
 
-        # Fallback: 使用实体名的第一个词
+        # Fallback: use first word of entity name
         parts = name.replace("_", " ").split()
         return parts[0] if parts else "unknown"
 

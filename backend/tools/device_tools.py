@@ -3,18 +3,12 @@ from core.state_manager import state_manager
 from core.ha_client import ha_client
 
 ROOM_ALIAS = {
-    # Chinese aliases
-    "卧室": "bedroom", "房间": "bedroom",
-    "客厅": "living_room", "起居室": "living_room",
-    "厨房": "kitchen",
-    "书房": "study", "办公室": "office",
-    "入口": "entrance", "门厅": "entrance",
-    # English aliases
     "bedroom": "bedroom", "bed": "bedroom",
     "living_room": "living_room", "livingroom": "living_room", "living": "living_room", "lounge": "living_room",
     "kitchen": "kitchen",
     "study": "study", "office": "office",
     "entrance": "entrance", "hallway": "entrance",
+    "bathroom": "bathroom", "bath": "bathroom",
 }
 
 
